@@ -11,8 +11,9 @@ import os
 import pickle
 import platform
 import sqlite3
+import time
 from collections import OrderedDict, deque
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Union  # noqa: F401
 
@@ -828,10 +829,11 @@ def _parse(text: str) -> Union[ast.Tree, None]:
     return file_to_tree(modelica_file)
 
 
-def _microseconds_since_epoch(datetime_: Optional[datetime] = None) -> int:
-    if datetime_ is None:
-        datetime_ = datetime.utcnow()
-    return int(datetime_.timestamp() * 1e6)
+def _nanoseconds_since_epoch(timedelta_: Optional[timedelta] = None) -> int:
+    if timedelta_ is not None:
+        return time.time_ns() + int(timedelta_.total_seconds() * 1e9)
+    else:
+        return time.time_ns()
 
 
 def _check_database_structure(conn: sqlite3.Connection):
@@ -918,12 +920,12 @@ def _check_database_structure(conn: sqlite3.Connection):
     cursor.execute("BEGIN TRANSACTION;")
     cursor.execute(
         "INSERT OR IGNORE INTO metadata (key, value) VALUES (?, ?)",
-        ("created_at", _microseconds_since_epoch()),
+        ("created_at", _nanoseconds_since_epoch()),
     )
 
     cursor.execute(
         "INSERT OR IGNORE INTO metadata (key, value) VALUES (?, ?)",
-        ("last_prune", _microseconds_since_epoch()),
+        ("last_prune", _nanoseconds_since_epoch()),
     )
 
     conn.commit()
@@ -1033,13 +1035,11 @@ def parse(
 
         # Prune the database of entries not hit recently
         cursor.execute("BEGIN TRANSACTION;")
-        cutoff_time = int(
-            (datetime.utcnow() - timedelta(days=cache_expiration_days)).timestamp() * 1e6
-        )
+        cutoff_time = _nanoseconds_since_epoch(timedelta(days=-cache_expiration_days))
         cursor.execute("DELETE FROM models WHERE last_hit < ?", (cutoff_time,))
         cursor.execute(
             "UPDATE metadata SET value = ? WHERE key = ?",
-            (_microseconds_since_epoch(), "last_prune"),
+            (_nanoseconds_since_epoch(), "last_prune"),
         )
 
         conn.commit()
@@ -1066,13 +1066,13 @@ def parse(
         logger.debug(f"Model with hash '{txt_hash}' ({pymoca_version}) found in cache")
         last_hit, pickled_data = result
 
-        yesterday = _microseconds_since_epoch(datetime.utcnow() - timedelta(days=1))
+        yesterday = _nanoseconds_since_epoch(timedelta(days=-1))
 
         if always_update_last_hit or last_hit < yesterday:
             cursor.execute("BEGIN TRANSACTION;")
             cursor.execute(
                 "UPDATE models SET last_hit = ? WHERE txt_hash = ? AND pymoca_version = ?",
-                (_microseconds_since_epoch(), txt_hash, pymoca_version),
+                (_nanoseconds_since_epoch(), txt_hash, pymoca_version),
             )
             conn.commit()
         try:
@@ -1100,7 +1100,7 @@ def parse(
             cursor.execute("BEGIN TRANSACTION;")
             cursor.execute(
                 "INSERT OR REPLACE INTO models (txt_hash, pymoca_version, data, last_hit) VALUES (?, ?, ?, ?)",
-                (txt_hash, pymoca_version, pickled_data, _microseconds_since_epoch()),
+                (txt_hash, pymoca_version, pickled_data, _nanoseconds_since_epoch()),
             )
             conn.commit()
 
