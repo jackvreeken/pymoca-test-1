@@ -8,9 +8,9 @@ on:
       - 'maintenance/*'
     tags:
       - '[0-9].*'
-  schedule:
-    # Every hour? Would be nice...
-    - cron: "22 * * * *"
+  # schedule:
+  #   # Every hour? Would be nice...
+  #   - cron: "22 * * * *"
 
 jobs:
   pre-commit:
